@@ -1,0 +1,28 @@
+{
+  "name": "procurefast",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently \"nodemon server/index.js\" \"vite\"",
+    "start": "node server/index.js",
+    "client": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "sqlite3": "^5.1.6",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "cookie-parser": "^1.4.6",
+    "stripe": "^14.5.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io-client": "^4.7.2",
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.1"
+  }
+}
