@@ -130,3 +130,6 @@ io.on('connection', socket => {
 });
 
 server.listen(3000, () => console.log('Backend on http://localhost:3000'));
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>ProcureFast</title></head>
+<body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>
