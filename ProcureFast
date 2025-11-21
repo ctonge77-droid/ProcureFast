@@ -26,3 +26,101 @@
     "nodemon": "^3.0.1"
   }
 }
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
+import { Database } from 'sqlite3';
+import Stripe from 'stripe';
+
+const stripe = new Stripe('sk_test_51YourTestKeyHere'); // ← change later
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(express.json());
+app.use(cookieParser());
+
+const db = new Database('data.db');
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, password TEXT, role TEXT)`);
+  db.run(`CREATE TABLE IF NOT EXISTS rfqs (id INTEGER PRIMARY KEY, title TEXT, description TEXT, quantity INTEGER, deadline INTEGER, buyerId INTEGER, status TEXT DEFAULT "open")`);
+  db.run(`CREATE TABLE IF NOT EXISTS bids (id INTEGER PRIMARY KEY, rfqId INTEGER, supplierId INTEGER, amount REAL, timestamp INTEGER)`);
+});
+
+const authenticate = (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) return res.sendStatus(401);
+  jwt.verify(token, 'secret', (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+
+// === AUTH ===
+app.post('/register', async (req, res) => {
+  const { email, password, role } = req.body;
+  const hash = await bcrypt.hash(password, 10);
+  db.run('INSERT INTO users (email, password, role) VALUES (?, ?, ?)', [email, hash, role], function(err) {
+    if (err) return res.status(400).json({error: "Exists"});
+    res.json({success: true});
+  });
+});
+
+app.post('/login', (req, res) => {
+  const { email, password } = req.body;
+  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+    if (!user || !await bcrypt.compare(password, user.password)) return res.sendStatus(401);
+    const token = jwt.sign({id: user.id, role: user.role}, 'secret');
+    res.cookie('token', token, {httpOnly: true}).json({role: user.role});
+  });
+});
+
+// === CORE APP ===
+app.get('/rfqs', (req, res) => {
+  db.all('SELECT rfqs.*, users.email as buyer FROM rfqs JOIN users ON rfqs.buyerId = users.id WHERE status = "open"', [], (err, rows) => res.json(rows || []));
+});
+
+app.post('/rfqs', authenticate, (req, res) => {
+  const { title, description, quantity, hours } = req.body;
+  const deadline = Date.now() + hours * 3600000;
+  db.run('INSERT INTO rfqs (title, description, quantity, deadline, buyerId) VALUES (?, ?, ?, ?, ?)', 
+    [title, description, quantity, deadline, req.user.id], function(err) {
+      const rfq = {id: this.lastID, ...req.body, deadline};
+      io.emit('new-rfq', rfq);
+      res.json(rfq);
+    });
+});
+
+app.get('/rfq/:id/bids', (req, res) => {
+  db.all('SELECT bids.*, users.email FROM bids JOIN users ON bids.supplierId = users.id WHERE rfqId = ? ORDER BY amount ASC', [req.params.id], (err, rows) => res Fir.json(rows || []));
+});
+
+app.post('/bid', authenticate, (req, res) => {
+  const { rfqId, amount } = req.body;
+  db.run('INSERT INTO bids (rfqId, supplierId, amount, timestamp) VALUES (?, ?, ?, ?)', 
+    [rfqId, req.user.id, amount, Date.now()], function(err) {
+      const bid = {id: this.lastID, amount, supplierId: req.user.id};
+      io.to(`rfq-${rfqId}`).emit('new-bid', bid);
+      res.json(bid);
+    });
+});
+
+// === STRIPE (just a demo route for now) ===
+app.get('/pricing', (req, res) => res.json([
+  {plan: "Free", price: 0, rfqs: 5},
+  {plan: "Pro", price: 49, rfqs: 999},
+  {plan: "Enterprise", price: 299, rfqs: 9999}
+]));
+
+io.on('connection', socket => {
+  socket.on('join-rfq', id => socket.join(`rfq-${id}`));
+});
+
+server.listen(3000, () => console.log('Backend on http://localhost:3000'));
